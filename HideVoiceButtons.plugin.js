@@ -62,7 +62,7 @@ module.exports = (() => {
         Settings,
         WebpackModules,
         DiscordModules,
-        DiscordAPI
+        DiscordAPI,
     } = Library;
 
     const Modules = {
@@ -70,14 +70,14 @@ module.exports = (() => {
         VoiceStates: WebpackModules.getByProps("getVoiceStates")
     }
 
-    // Selectors for each button
-    const SELECTORS = {
-        mute: ".button-14-BFJ[aria-label=Mute]",
-        deafen: ".button-14-BFJ[aria-label=Deafen]",
-        settings: ".button-14-BFJ[aria-label='User Settings']",
-    }
-    const PANEL = ".panels-j1Uci_";
+    const SEL_PANEL = ".panels-j1Uci_";
+    const SEL_BUTTONS = ".button-14-BFJ";
 
+    const PANEL = document.querySelector(SEL_PANEL);
+    const buttons = [...PANEL.querySelectorAll(SEL_BUTTONS)].map(x => ({
+        action: x.ariaLabel.replace(/ /g, '_'),
+        el: x
+    }));
 
     return class HideVoiceButtons extends Plugin {
         constructor() {
@@ -85,12 +85,14 @@ module.exports = (() => {
 
             this.defaultSettings = {};
             this.defaultSettings.buttons = {};
-            this.defaultSettings.buttons.mute = true;
-            this.defaultSettings.buttons.deafen = true;
-            this.defaultSettings.buttons.settings = false;
+            this.defaultSettings.buttons.Mute = true;
+            this.defaultSettings.buttons.Deafen = true;
+            this.defaultSettings.buttons.User_Settings = false;
 
             this.callback = this.stateChange.bind(this);
             this.inChannel = null;
+
+            this.stopped = false;
         }
 
         isInChannel() { // Boolean for if user is in a voice channel
@@ -98,20 +100,18 @@ module.exports = (() => {
         }
 
         toggleButtons() { // Update the buttons with the stored state
+            if (this.stopped) return;
             const state = this.inChannel; // Get stored state
             const display = state ? '' : 'none'; // Turn state into display style value
 
-            // Get elements from each selector
-            const buttons = Object.fromEntries(Object.entries(SELECTORS).map(([k, v]) => [k, document.querySelector(v)]));
-
-            // Loop thru each button
-            Object.keys(SELECTORS).forEach((btn) => {
+            buttons.forEach((btn) => {
                 // If button is enabled in settings, apply the state. Otherwise reset.
-                buttons[btn].style.display = this.settings.buttons[btn] ? display : '';
-            })
+                btn.el.style.display = this.settings.buttons[btn.action] ? display : '';
+            });
         }
 
         stateChange(e) { // Handles voice state change effect
+            if (this.stopped) return;
             const currentUser = DiscordAPI.currentUser.id; // Logged in user's ID
 
             // User of event
@@ -145,10 +145,11 @@ module.exports = (() => {
             // Detect changes on buttons and re-apply the styles
             // This fixes other plugins overwriting the styles
             const observer = new MutationObserver(() => {
+                if (this.stopped) return observer.disconnect();
                 this.toggleButtons();
             });
 
-            observer.observe(document.querySelector(PANEL), {
+            observer.observe(PANEL, {
                 subtree: true,
                 childList: true,
                 attributes: true
@@ -158,27 +159,32 @@ module.exports = (() => {
         onStop() {
             // Remove the event listener
             Modules.Dispatch.unsubscribe("VOICE_STATE_UPDATE", this.callback);
+
+            this.stopped = true;
         }
 
         getSettingsPanel() {
-            return Settings.SettingPanel.build(this.saveSettings.bind(this),
+            return Settings.SettingPanel.build(() => {
+                    this.saveSettings(this);
+                    this.toggleButtons();
+                },
                 new Settings.SettingGroup("Buttons", {
                     shown: true
                 }).append(
-                    new Settings.Switch("Hide Mute Button", null, this.settings.buttons.mute, (e) => {
-                        this.settings.buttons.mute = e;
+                    new Settings.Switch("Hide Mute Button", null, this.settings.buttons.Mute, (e) => {
+                        this.settings.buttons.Mute = e;
                         this.toggleButtons();
                     }),
-                    new Settings.Switch("Hide Deafen Button", null, this.settings.buttons.deafen, (e) => {
-                        this.settings.buttons.deafen = e;
+                    new Settings.Switch("Hide Deafen Button", null, this.settings.buttons.Deafen, (e) => {
+                        this.settings.buttons.Deafen = e;
                         this.toggleButtons();
                     }),
-                    new Settings.Switch("Hide Settings Button", null, this.settings.buttons.settings, (e) => {
-                        this.settings.buttons.settings = e;
+                    new Settings.Switch("Hide Settings Button", null, this.settings.buttons.User_Settings, (e) => {
+                        this.settings.buttons.User_Settings = e;
                         this.toggleButtons();
                     })
                 )
-            );
+            )
         }
     };
 };
